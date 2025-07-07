@@ -2,12 +2,13 @@
 #define _NERTC_PROTOCOL_H_
 
 #include <atomic>
+#include <freertos/FreeRTOS.h>
+#include <freertos/event_groups.h>
 #include <esp_timer.h>
+#include <cJSON.h>
 #include "protocol.h"
 #include "nertc_sdk.h"
-#include <cJSON.h>
 
-class BackgroundTask;
 class NeRtcProtocol : public Protocol {
 public:
     NeRtcProtocol();
@@ -29,28 +30,38 @@ private:
     cJSON* BuildApplicationIotStateProtocol(cJSON* commands);
 
 private:
-    static void OnError(const nertc_sdk_callback_context_t* ctx, int code, const char* msg);
+    static void OnError(const nertc_sdk_callback_context_t* ctx, nertc_sdk_error_code_e code, const char* msg);
     static void OnChannelStatusChanged(const nertc_sdk_callback_context_t* ctx, nertc_sdk_channel_state_e status, const char *msg);
-    static void OnJoin(const nertc_sdk_callback_context_t* ctx, uint64_t cid, uint64_t uid, nertc_sdk_error_code_e code, uint64_t elapsed, const nertc_sdk_recommended_config* recommended_config);
-    static void OnUserJoined(const nertc_sdk_callback_context_t* ctx, const nertc_sdk_user_info& user);
-    static void OnUserLeft(const nertc_sdk_callback_context_t* ctx, const nertc_sdk_user_info& user, int reason);
+    static void OnJoin(const nertc_sdk_callback_context_t* ctx, uint64_t cid, uint64_t uid, nertc_sdk_error_code_e code, uint64_t elapsed, const nertc_sdk_recommended_config_t* recommended_config);
+    static void OnDisconnect(const nertc_sdk_callback_context_t* ctx, nertc_sdk_error_code_e code, int reason);
+    static void OnUserJoined(const nertc_sdk_callback_context_t* ctx, const nertc_sdk_user_info* user);
+    static void OnUserLeft(const nertc_sdk_callback_context_t* ctx, const nertc_sdk_user_info* user, int reason);
     static void OnUserAudioStart(const nertc_sdk_callback_context_t* ctx, uint64_t uid, nertc_sdk_media_stream_e stream_type);
     static void OnUserAudioStop(const nertc_sdk_callback_context_t* ctx, uint64_t uid, nertc_sdk_media_stream_e stream_type);
     static void OnAsrCaptionResult(const nertc_sdk_callback_context_t* ctx, nertc_sdk_asr_caption_result_t* results, int result_count);
     static void OnAiData(const nertc_sdk_callback_context_t* ctx, nertc_sdk_ai_data_result_t* ai_data);
     static void OnAudioData(const nertc_sdk_callback_context_t* ctx, uint64_t uid, nertc_sdk_media_stream_e stream_type, nertc_sdk_audio_encoded_frame_t* encoded_frame, bool is_mute_packet);
 private:
+    EventGroupHandle_t event_group_ = nullptr;
     std::string cname_;
     nertc_sdk_engine_t engine_ { nullptr };
     std::atomic<bool> join_ {false}; 
     std::atomic<bool> audio_channel_opened_ {false}; 
     uint64_t cid_ { 0 }; 
     uint64_t uid_ { 0 };
+    nertc_sdk_audio_config recommended_audio_config_ { 0 };
     esp_timer_handle_t asr_timer_ { nullptr };
     esp_timer_handle_t close_timer_ { nullptr };
 
+    bool phone_call_start_ { false }; // flag to indicate if phone call is in progress
+    uint64_t phone_uid_ { 0 }; // SIP phone UID
+    std::string phone_number_;
+
 private:
     bool SendText(const std::string& text) override;
+
+    bool SipPhoneCallStart(const std::string& phone_number);
+    bool SipPhoneCallEnd();
 };
 
 #endif

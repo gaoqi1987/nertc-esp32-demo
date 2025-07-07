@@ -374,7 +374,7 @@ config USE_NERTC_SERVER_AEC
 config USE_NERTC_QOS
     bool "Enable NERTC QOS"
     default y
-    depends on CONNECTION_TYPE_NERTC && IDF_TARGET_ESP32S3
+    depends on USE_NERTC_SERVER_AEC || IDF_TARGET_ESP32S3
     help
         启用nertc QOS(包含nack,red,neteq,jitterbuffer等功能)
 
@@ -400,7 +400,7 @@ config USE_AFE_WAKE_WORD
 
 config USE_AUDIO_PROCESSOR
     bool "Enable Audio Noise Reduction"
-    default y
+    default n
     depends on (IDF_TARGET_ESP32S3 || IDF_TARGET_ESP32P4) && SPIRAM
     help
         需要 ESP32 S3 与 PSRAM 支持

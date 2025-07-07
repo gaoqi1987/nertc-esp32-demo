@@ -32,6 +32,9 @@ enum AecMode {
     kAecOff,
     kAecOnDeviceSide,
     kAecOnServerSide,
+#if defined(CONFIG_USE_NERTC_SERVER_AEC)
+    kAecOnNertc
+#endif
 };
 
 enum DeviceState {
@@ -126,13 +129,18 @@ private:
     OpusResampler input_resampler_;
     OpusResampler reference_resampler_;
     OpusResampler output_resampler_;
-
+#if defined(CONFIG_CONNECTION_TYPE_NERTC)
+    OpusResampler output_reference_resampler_;
+#endif
     void MainEventLoop();
     void OnAudioInput();
     void OnAudioOutput();
     bool ReadAudio(std::vector<int16_t>& data, int sample_rate, int samples);
     void ResetDecoder();
     void SetDecodeSampleRate(int sample_rate, int frame_duration);
+#if defined(CONFIG_CONNECTION_TYPE_NERTC) && defined(CONFIG_USE_NERTC_SERVER_AEC)
+    void SetEncodeSampleRate(int sample_rate, int frame_duration);
+#endif
     void CheckNewVersion();
     void ShowActivationCode();
     void OnClockTimer();

@@ -11,6 +11,7 @@
 
 #define UID 6669
 #define USE_SAFE_MODE 0
+#define JOIN_EVENT (1 << 0)
 
 NeRtcProtocol::NeRtcProtocol() {
     cJSON* root = cJSON_Parse(Board::GetInstance().GetJson().c_str());
@@ -39,7 +40,7 @@ NeRtcProtocol::NeRtcProtocol() {
     nertc_sdk_config_t nertc_sdk_config = { 0 };
     nertc_sdk_config.app_key = CONFIG_NERTC_APPKEY;
     nertc_sdk_config.device_id = device_id.c_str();
-    //如果不打开服务端aec，可以自由配置这3个参数
+    //如果打开服务端aec，这3个参数会由sdk内部控制
     nertc_sdk_config.audio_config.sample_rate = 16000; 
     nertc_sdk_config.audio_config.channels = 1;
     nertc_sdk_config.audio_config.frame_duration = OPUS_FRAME_DURATION_MS; 
@@ -47,6 +48,7 @@ NeRtcProtocol::NeRtcProtocol() {
     nertc_sdk_config.event_handler.on_error = OnError;
     nertc_sdk_config.event_handler.on_channel_status_changed = OnChannelStatusChanged;
     nertc_sdk_config.event_handler.on_join = OnJoin;
+    nertc_sdk_config.event_handler.on_disconnect = OnDisconnect;
     nertc_sdk_config.event_handler.on_user_joined = OnUserJoined;
     nertc_sdk_config.event_handler.on_user_left = OnUserLeft;
     nertc_sdk_config.event_handler.on_user_audio_start = OnUserAudioStart;
@@ -82,10 +84,13 @@ NeRtcProtocol::NeRtcProtocol() {
         ESP_LOGE(TAG, "create CloseAudioChannel_timer fail err: %s", esp_err_to_name(err));
         return;
     }
+
+    event_group_ = xEventGroupCreate();
 }
 
 NeRtcProtocol::~NeRtcProtocol() {
     ESP_LOGI(TAG, "destroy NeRtcProtocol");
+    vEventGroupDelete(event_group_);
 
     if (close_timer_ != nullptr) {
         esp_timer_stop(close_timer_);
@@ -117,14 +122,16 @@ bool NeRtcProtocol::Start() {
     // join room
     uint32_t random_num = 100000 + (esp_random() % 900000);
     cname_ = std::string("79") + std::to_string(random_num);
-    ESP_LOGI(TAG, "cname = %s\n", cname_.c_str());
+    ESP_LOGI(TAG, "Join cname = %s\n", cname_.c_str());
     auto ret = nertc_join(engine_, cname_.c_str(), checksum.c_str(), UID);
     if (ret != 0) {
         ESP_LOGE(TAG, "Join failed, error: %d", ret);
         return false;
     }
 
-    return true;
+    xEventGroupWaitBits(event_group_, JOIN_EVENT, pdTRUE, pdFALSE, pdMS_TO_TICKS(10000)); //最长阻塞10秒
+
+    return join_.load();
 }
 
 bool NeRtcProtocol::OpenAudioChannel() {
@@ -187,7 +194,7 @@ bool NeRtcProtocol::SendAudio(const AudioStreamPacket& packet) {
         nertc_sdk_audio_encoded_frame_t encoded_frame;
         encoded_frame.data = const_cast<unsigned char*>(packet.payload.data());
         encoded_frame.length = packet.payload.size();
-        nertc_sdk_audio_config audio_config = {16000, 1, 160};
+        nertc_sdk_audio_config audio_config = {server_sample_rate_, 1, samples_per_channel_};
         nertc_push_audio_encoded_frame(engine_, NERTC_SDK_MEDIA_MAIN_AUDIO, audio_config, 100, &encoded_frame);
     } else {
         if (packet.sample_rate != server_sample_rate_) {
@@ -354,7 +361,7 @@ cJSON* NeRtcProtocol::BuildApplicationIotStateProtocol(cJSON* commands) {
     return data;
 }
 
-void NeRtcProtocol::OnError(const nertc_sdk_callback_context_t* ctx, int code, const char* msg) {
+void NeRtcProtocol::OnError(const nertc_sdk_callback_context_t* ctx, nertc_sdk_error_code_e code, const char* msg) {
     ESP_LOGE(TAG, "NERtc OnError: %d, %s", code, msg);
 
     NeRtcProtocol* instance = static_cast<NeRtcProtocol*>(ctx->user_data);
@@ -370,9 +377,9 @@ void NeRtcProtocol::OnChannelStatusChanged(const nertc_sdk_callback_context_t* c
     ESP_LOGI(TAG, "NERtc OnChannelStatusChanged: %d, %s", (int)status, msg);
 }
 
-void NeRtcProtocol::OnJoin(const nertc_sdk_callback_context_t* ctx, uint64_t cid, uint64_t uid, nertc_sdk_error_code_e code, uint64_t elapsed, const nertc_sdk_recommended_config* recommended_config) {
-    ESP_LOGI(TAG, "NERtc OnJoin: cid:%s, uid:%s, code:%d, elapsed:%s sample_rate:%d samples_per_channel:%d", 
-                std::to_string(cid).c_str(), std::to_string(uid).c_str(), code, std::to_string(elapsed).c_str(), recommended_config->recommended_audio_config.sample_rate, recommended_config->recommended_audio_config.samples_per_channel);
+void NeRtcProtocol::OnJoin(const nertc_sdk_callback_context_t* ctx, uint64_t cid, uint64_t uid, nertc_sdk_error_code_e code, uint64_t elapsed, const nertc_sdk_recommended_config_t* recommended_config) {
+    ESP_LOGI(TAG, "NERtc OnJoin: cid:%s, uid:%s, code:%d, elapsed:%s sample_rate:%d samples_per_channel:%d frame_duration:%d", 
+                std::to_string(cid).c_str(), std::to_string(uid).c_str(), code, std::to_string(elapsed).c_str(), recommended_config->recommended_audio_config.sample_rate, recommended_config->recommended_audio_config.samples_per_channel, recommended_config->recommended_audio_config.frame_duration);
 
     NeRtcProtocol* instance = static_cast<NeRtcProtocol*>(ctx->user_data);
     if (ctx->engine && instance) {
@@ -388,23 +395,46 @@ void NeRtcProtocol::OnJoin(const nertc_sdk_callback_context_t* ctx, uint64_t cid
         instance->server_sample_rate_ = recommended_config->recommended_audio_config.sample_rate;        
         instance->server_frame_duration_ = recommended_config->recommended_audio_config.frame_duration;
         instance->samples_per_channel_ = recommended_config->recommended_audio_config.samples_per_channel;
+        instance->recommended_audio_config_ = recommended_config->recommended_audio_config;
+    }
+
+    xEventGroupSetBits(instance->event_group_, JOIN_EVENT);
+}
+
+void NeRtcProtocol::OnDisconnect(const nertc_sdk_callback_context_t* ctx, nertc_sdk_error_code_e code, int reason) {
+    ESP_LOGI(TAG, "NERtc OnDisconnect: code=%d reason=%d", code, reason);
+
+    NeRtcProtocol* instance = static_cast<NeRtcProtocol*>(ctx->user_data);
+    if (!instance)
+        return;
+
+    instance->CloseAudioChannel();;
+    ESP_LOGI(TAG, "Stop for receive OnDisconnect, please restart later");
+}
+
+void NeRtcProtocol::OnUserJoined(const nertc_sdk_callback_context_t* ctx, const nertc_sdk_user_info* user) {
+    ESP_LOGI(TAG, "NERtc OnUserJoined: %s, %s type:%d", std::to_string(user->uid).c_str(), user->name, user->type);
+
+    NeRtcProtocol* instance = static_cast<NeRtcProtocol*>(ctx->user_data);
+    if (!instance)
+        return;
+
+    if (user->type == NERTC_SDK_USER_SIP) {
+        instance->phone_uid_ = user->uid;
+        ESP_LOGI(TAG, "OnUserJoined. phone uid:%s", std::to_string(instance->phone_uid_).c_str());
     }
 }
 
-void NeRtcProtocol::OnUserJoined(const nertc_sdk_callback_context_t* ctx, const nertc_sdk_user_info& user) {
-    ESP_LOGI(TAG, "NERtc OnUserJoined: %s, %s type:%d", std::to_string(user.uid).c_str(), user.name, user.type);
+void NeRtcProtocol::OnUserLeft(const nertc_sdk_callback_context_t* ctx, const nertc_sdk_user_info* user, int reason) {
+    ESP_LOGI(TAG, "NERtc OnUserLeft: %s, %d", std::to_string(user->uid).c_str(), reason);
 
     NeRtcProtocol* instance = static_cast<NeRtcProtocol*>(ctx->user_data);
     if (!instance)
         return;
-}
 
-void NeRtcProtocol::OnUserLeft(const nertc_sdk_callback_context_t* ctx, const nertc_sdk_user_info& user, int reason) {
-    ESP_LOGI(TAG, "NERtc OnUserLeft: %s, %d", std::to_string(user.uid).c_str(), reason);
-
-    NeRtcProtocol* instance = static_cast<NeRtcProtocol*>(ctx->user_data);
-    if (!instance)
-        return;
+    if (instance->phone_call_start_ &&  user->uid != 0 &&  user->uid == instance->phone_uid_) {
+        instance->SipPhoneCallEnd();
+    }
 }
 
 void NeRtcProtocol::OnUserAudioStart(const nertc_sdk_callback_context_t* ctx, uint64_t uid, nertc_sdk_media_stream_e stream_type) {
@@ -479,6 +509,19 @@ void NeRtcProtocol::OnAiData(const nertc_sdk_callback_context_t* ctx, nertc_sdk_
                 instance->CloseAudioChannel();
                 return;
             }
+        } else if (name == "call_sip_phone") {
+            cJSON* arguments_json = cJSON_Parse(arguments.c_str());
+            cJSON* phoneNumber_item = cJSON_GetObjectItem(arguments_json, "phoneNumber");
+            if (!phoneNumber_item || !cJSON_IsString(phoneNumber_item)) {
+                ESP_LOGE(TAG, "phoneNumber is null");
+                cJSON_Delete(arguments_json);
+                cJSON_Delete(data_json);
+                return;
+            }
+            std::string phone_number = phoneNumber_item->valuestring;
+            if (instance->SipPhoneCallStart(phone_number)) {
+                ESP_LOGI(TAG, "phone call start phone_number:%s. and stop ai", phone_number.c_str());
+            }
         }
 
         cJSON_Delete(data_json);
@@ -499,8 +542,8 @@ void NeRtcProtocol::OnAudioData(const nertc_sdk_callback_context_t* ctx, uint64_
         instance->on_incoming_audio_(AudioStreamPacket{.sample_rate = instance->server_sample_rate_,
                                                         .frame_duration = instance->server_frame_duration_,
                                                         .timestamp = 0,
-                                                        .muted = is_mute_packet,
-                                                        .payload = std::move(payload_vector)});
+                                                        .payload = std::move(payload_vector),
+                                                        .muted = is_mute_packet,});
     }
 }
 
@@ -516,12 +559,121 @@ bool NeRtcProtocol::SendText(const std::string& text) {
     }
     std::string type = type_item->valuestring;
     if (type == "abort") {
-        nertc_ai_manual_interrupt(engine_);
-        cJSON* state_json = BuildApplicationTtsStateProtocol("audio.agent.speech_stopped");
-        if (on_incoming_json_) on_incoming_json_(state_json);
-        cJSON_Delete(state_json);
+        if (phone_call_start_ && !phone_number_.empty()) {
+            SipPhoneCallEnd();
+        } else {
+            nertc_ai_manual_interrupt(engine_);
+            cJSON* state_json = BuildApplicationTtsStateProtocol("audio.agent.speech_stopped");
+            if (on_incoming_json_) on_incoming_json_(state_json);
+            cJSON_Delete(state_json);
+        }
     }
 
     cJSON_Delete(data_json);
+    return true;
+}
+
+bool NeRtcProtocol::SipPhoneCallStart(const std::string& phone_number) {
+    auto http = Board::GetInstance().CreateHttp();
+
+    std::string post_str = "{\"appKey\":\"" + std::string(CONFIG_NERTC_APPKEY) + "\","
+                           "\"sipCid\":\"" + cname_ + "\","
+                           "\"uid\":\"" + std::to_string(UID) + "\","
+                           "\"sipIp\":\"\","
+                           "\"type\":1,"
+                           "\"sipCalleeId\":\"" + phone_number + "\","
+                           "\"requestId\":\"" + std::to_string(esp_random()) + "\","
+                           "\"audio\":1,"
+                           "\"video\":0}";
+    ESP_LOGI(TAG, "SipPhoneCall post_str = %s\n", post_str.c_str());
+    http->SetHeader("Content-Type", "application/json");
+    http->SetContent(std::move(post_str));
+    if (!http->Open("POST", "http://111.124.203.149:10800/sipCallOut")) {
+        ESP_LOGE(TAG, "Failed to open HTTP connection");    
+        return false;
+    }
+
+    auto response = http->ReadAll();
+    http->Close();
+    delete http;    
+    cJSON* root = cJSON_Parse(response.c_str());
+    if (root == nullptr) {
+        ESP_LOGE(TAG, "Failed to parse JSON response: %s", response.c_str());
+        return false;
+    }
+    char* serialized = cJSON_PrintUnformatted(root);
+    ESP_LOGE(TAG, "SipPhoneCall res:%s", serialized);
+    free(serialized);
+
+    cJSON* code_item = cJSON_GetObjectItem(root, "code");
+    if (!code_item || !cJSON_IsNumber(code_item) || code_item->valueint != 200) {
+        ESP_LOGE(TAG, "Missing or invalid code in response");
+        cJSON_Delete(root);
+        return false;
+    }
+    phone_call_start_ = true;
+    phone_number_ = phone_number;
+    cJSON_Delete(root);
+
+    //目前电话端只支持20ms duration
+    server_frame_duration_ = 20;
+    samples_per_channel_ = recommended_audio_config_.samples_per_channel / (recommended_audio_config_.frame_duration / server_frame_duration_);
+
+    // 停止ai对话
+    nertc_stop_ai(engine_);
+
+    return true;
+}
+
+bool NeRtcProtocol::SipPhoneCallEnd() {
+    auto http = Board::GetInstance().CreateHttp();
+
+    std::string post_str = "{\"appKey\":\"" + std::string(CONFIG_NERTC_APPKEY) + "\","
+                           "\"sipCid\":\"" + cname_ + "\","
+                           "\"uid\":\"" + std::to_string(UID) + "\","
+                           "\"sipIp\":\"\","
+                           "\"type\":1,"
+                           "\"sipCalleeId\":\"" + phone_number_ + "\","
+                           "\"requestId\":\"" + std::to_string(esp_random()) + "\","
+                           "\"audio\":1,"
+                           "\"video\":0}";
+    ESP_LOGI(TAG, "sipCancelCallOut post_str = %s\n", post_str.c_str());
+    http->SetHeader("Content-Type", "application/json");
+    http->SetContent(std::move(post_str));
+    if (!http->Open("POST", "http://111.124.203.149:10800/sipCancelCallOut")) {
+        ESP_LOGE(TAG, "Failed to open HTTP connection");    
+        return false;
+    }
+
+    auto response = http->ReadAll();
+    http->Close();
+    delete http;    
+    cJSON* root = cJSON_Parse(response.c_str());
+    if (root == nullptr) {
+        ESP_LOGE(TAG, "Failed to parse JSON response: %s", response.c_str());
+        return false;
+    }
+    char* serialized = cJSON_PrintUnformatted(root);
+    ESP_LOGE(TAG, "sipCancelCallOut res:%s", serialized);
+    free(serialized);
+    cJSON_Delete(root);
+
+    phone_call_start_ = false;
+    phone_uid_ = 0;
+    phone_number_.clear();
+
+    //恢复到房间配置
+    server_frame_duration_ = recommended_audio_config_.frame_duration;
+    samples_per_channel_ = recommended_audio_config_.samples_per_channel;
+
+    ESP_LOGI(TAG, "phone end");
+
+    //启动ai对话
+    auto ret = nertc_start_ai(engine_);
+    if (ret != 0) {
+        ESP_LOGE(TAG, "Start AI failed, error: %d", ret);
+        return false;
+    }
+
     return true;
 }

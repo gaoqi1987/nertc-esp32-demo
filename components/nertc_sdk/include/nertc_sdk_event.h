@@ -30,7 +30,7 @@ typedef struct nertc_sdk_event_handler {
   * @param msg 错误描述
   * @endif
   */
-void (*on_error)(const nertc_sdk_callback_context_t* ctx, int code, const char *msg);
+void (*on_error)(const nertc_sdk_callback_context_t* ctx, nertc_sdk_error_code_e code, const char *msg);
 
 /**
   * 房间状态已改变回调。
@@ -50,7 +50,14 @@ void (*on_channel_status_changed)(const nertc_sdk_callback_context_t* ctx, nertc
  * @param code 错误码
  * @param elapsed 从开始加入房间到加入房间成功的耗时，单位：毫秒
  */
-void (*on_join)(const nertc_sdk_callback_context_t* ctx, uint64_t cid, uint64_t uid, nertc_sdk_error_code_e code, uint64_t elapsed, const nertc_sdk_recommended_config* recommended_config);
+void (*on_join)(const nertc_sdk_callback_context_t* ctx, uint64_t cid, uint64_t uid, nertc_sdk_error_code_e code, uint64_t elapsed, const nertc_sdk_recommended_config_t* recommended_config);
+
+/**
+ * @brief 与服务器连接中断，可能原因包括：网络连接失败、服务器关闭该房间、用户被踢出房间等。
+* @param ctx 回调上下文
+ * @param reason 断开原因
+ */
+void (*on_disconnect)(const nertc_sdk_callback_context_t* ctx, nertc_sdk_error_code_e code, int reason);
 
 /**
  * @brief 远端用户加入房间回调 <br>
@@ -58,7 +65,7 @@ void (*on_join)(const nertc_sdk_callback_context_t* ctx, uint64_t cid, uint64_t 
  * @param uid 远端用户id
  * @param user_name 远端用户名(保留字段)
  */
-void (*on_user_joined)(const nertc_sdk_callback_context_t* ctx, const nertc_sdk_user_info& user);
+void (*on_user_joined)(const nertc_sdk_callback_context_t* ctx, const nertc_sdk_user_info* user);
 
 /**
  * @brief 远端用户离开房间<br>
@@ -66,7 +73,7 @@ void (*on_user_joined)(const nertc_sdk_callback_context_t* ctx, const nertc_sdk_
  * @param uid 远端用户id
  * @param reason 用户离开房间的原因
  */
-void (*on_user_left)(const nertc_sdk_callback_context_t* ctx, const nertc_sdk_user_info& user, int reason);
+void (*on_user_left)(const nertc_sdk_callback_context_t* ctx, const nertc_sdk_user_info* user, int reason);
 
 /**
   * @if Chinese
@@ -104,7 +111,7 @@ void (*on_user_audio_stop)(const nertc_sdk_callback_context_t* ctx, uint64_t uid
  * @param msg 具体的错误信息
  * @endif
  */
-void (*on_asr_caption_state_changed)(const nertc_sdk_callback_context_t* ctx, nertc_sdk_asr_caption_state_e state, int code, const char *msg);
+void (*on_asr_caption_state_changed)(const nertc_sdk_callback_context_t* ctx, nertc_sdk_asr_caption_state_e state, nertc_sdk_error_code_e code, const char *msg);
 
 /**
  * 实时字幕信息回调。
