@@ -1066,7 +1066,7 @@ void Application::SetDecodeSampleRate(int sample_rate, int frame_duration) {
     }
 
 #if defined(CONFIG_CONNECTION_TYPE_NERTC) && defined(CONFIG_USE_NERTC_SERVER_AEC)
-    if (opus_decoder_->sample_rate() != protocol_->server_sample_rate()) {
+    if (protocol_ && opus_decoder_->sample_rate() != protocol_->server_sample_rate()) {
         output_reference_resampler_.Configure(opus_decoder_->sample_rate(), protocol_->server_sample_rate());
     }
 #endif
