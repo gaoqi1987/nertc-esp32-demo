@@ -282,7 +282,7 @@ NoAudioCodecSimplexPdm::NoAudioCodecSimplexPdm(int input_sample_rate, int output
 
     // Create a new channel for speaker
     i2s_chan_config_t tx_chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG((i2s_port_t)1, I2S_ROLE_MASTER);
-    tx_chan_cfg.dma_desc_num = AUDIO_CODEC_DMA_DESC_NUM;
+    tx_chan_cfg.dma_desc_num = AUDIO_CODEC_DMA_DESC_NUM * 3;
     tx_chan_cfg.dma_frame_num = AUDIO_CODEC_DMA_FRAME_NUM;
     tx_chan_cfg.auto_clear_after_cb = true;
     tx_chan_cfg.auto_clear_before_cb = false;
@@ -319,8 +319,8 @@ NoAudioCodecSimplexPdm::NoAudioCodecSimplexPdm(int input_sample_rate, int output
     // Create a new channel for MIC in PDM mode
     i2s_chan_config_t rx_chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG((i2s_port_t)0, I2S_ROLE_MASTER);
 #ifdef CONFIG_CONNECTION_TYPE_NERTC
-    rx_chan_cfg.dma_desc_num = 20;
-    rx_chan_cfg.dma_frame_num = 80;
+    rx_chan_cfg.dma_desc_num = AUDIO_CODEC_DMA_DESC_NUM * 3;
+    rx_chan_cfg.dma_frame_num = AUDIO_CODEC_DMA_FRAME_NUM;
 #endif
     ESP_ERROR_CHECK(i2s_new_channel(&rx_chan_cfg, NULL, &rx_handle_));
     i2s_pdm_rx_config_t pdm_rx_cfg = {

@@ -11,8 +11,13 @@
 
 #include "board.h"
 
+#if defined(CONFIG_USE_NERTC_SERVER_AEC) && defined(CONFIG_IDF_TARGET_ESP32C3)
+#define AUDIO_CODEC_DMA_DESC_NUM 18
+#define AUDIO_CODEC_DMA_FRAME_NUM 80
+#else
 #define AUDIO_CODEC_DMA_DESC_NUM 6
 #define AUDIO_CODEC_DMA_FRAME_NUM 240
+#endif
 #define AUDIO_CODEC_DEFAULT_MIC_GAIN 30.0
 
 class AudioCodec {

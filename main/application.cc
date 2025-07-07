@@ -60,6 +60,8 @@ Application::Application() {
     aec_mode_ = kAecOnDeviceSide;
 #elif CONFIG_USE_SERVER_AEC
     aec_mode_ = kAecOnServerSide;
+#elif CONFIG_USE_NERTC_SERVER_AEC
+    aec_mode_ = kAecOnNertc;
 #else
     aec_mode_ = kAecOff;
 #endif
@@ -313,16 +315,7 @@ void Application::ToggleChatState() {
                 }
             }
 
-#if defined(CONFIG_CONNECTION_TYPE_NERTC) && defined(CONFIG_USE_NERTC_SERVER_AEC)
-            auto codec = Board::GetInstance().GetAudioCodec();
-            if (protocol_->server_sample_rate() != codec->input_sample_rate()) {
-                input_resampler_.Configure(codec->input_sample_rate(), protocol_->server_sample_rate());
-                reference_resampler_.Configure(codec->input_sample_rate(), protocol_->server_sample_rate());
-            }
-            SetListeningMode(kListeningModeRealtime);
-#else
             SetListeningMode(aec_mode_ == kAecOff ? kListeningModeAutoStop : kListeningModeRealtime);
-#endif
         });
     } else if (device_state_ == kDeviceStateSpeaking) {
         Schedule([this]() {
@@ -468,9 +461,16 @@ void Application::Start() {
     });
     protocol_->OnIncomingAudio([this](AudioStreamPacket&& packet) {
         std::lock_guard<std::mutex> lock(mutex_);
+
+#if defined(CONFIG_CONNECTION_TYPE_NERTC) && defined(CONFIG_USE_NERTC_SERVER_AEC)
+        if (audio_decode_queue_.size() < MAX_AUDIO_PACKETS_IN_QUEUE) {
+            audio_decode_queue_.emplace_back(std::move(packet));
+        }
+#else
         if (device_state_ == kDeviceStateSpeaking && audio_decode_queue_.size() < MAX_AUDIO_PACKETS_IN_QUEUE) {
             audio_decode_queue_.emplace_back(std::move(packet));
         }
+#endif
     });
     protocol_->OnAudioChannelOpened([this, codec, &board]() {
         board.SetPowerSaveMode(false);
@@ -589,6 +589,10 @@ void Application::Start() {
     });
     bool protocol_started = protocol_->Start();
 
+#if defined(CONFIG_CONNECTION_TYPE_NERTC) && defined(CONFIG_USE_NERTC_SERVER_AEC)
+    SetEncodeSampleRate(protocol_->server_sample_rate(), protocol_->server_frame_duration());
+#endif
+
     audio_debugger_ = std::make_unique<AudioDebugger>();
     audio_processor_->Initialize(codec);
     audio_processor_->OnOutput([this](std::vector<int16_t>&& data) {
@@ -600,12 +604,15 @@ void Application::Start() {
             }
         }
         background_task_->Schedule([this, data = std::move(data)]() mutable {
-#if defined(CONFIG_CONNECTION_TYPE_NERTC) && defined(CONFIG_USE_NERTC_SERVER_AEC)
+#if defined(CONFIG_USE_NERTC_SERVER_AEC) && defined(CONFIG_IDF_TARGET_ESP32C3) //c3开aec，则上行不编码
             AudioStreamPacket packet;
             packet.pcm_payload = std::move(data);
             packet.sample_rate = protocol_->server_sample_rate();
             protocol_->SendAudio(packet);
 #else
+#if defined(CONFIG_CONNECTION_TYPE_NERTC) && defined(CONFIG_USE_NERTC_SERVER_AEC)
+            SetEncodeSampleRate(protocol_->server_sample_rate(), protocol_->server_frame_duration());
+#endif
             opus_encoder_->Encode(std::move(data), [this](std::vector<uint8_t>&& opus) {
                 AudioStreamPacket packet;
                 packet.payload = std::move(opus);
@@ -686,17 +693,7 @@ void Application::Start() {
                 PlaySound(Lang::Sounds::P3_POPUP);
                 vTaskDelay(pdMS_TO_TICKS(60));
 #endif
-
-#if defined(CONFIG_CONNECTION_TYPE_NERTC) && defined(CONFIG_USE_NERTC_SERVER_AEC)
-                auto codec = Board::GetInstance().GetAudioCodec();
-                if (protocol_->server_sample_rate() != codec->input_sample_rate()) {
-                    input_resampler_.Configure(codec->input_sample_rate(), protocol_->server_sample_rate());
-                    reference_resampler_.Configure(codec->input_sample_rate(), protocol_->server_sample_rate());
-                }
-                SetListeningMode(kListeningModeRealtime);
-#else
                 SetListeningMode(aec_mode_ == kAecOff ? kListeningModeAutoStop : kListeningModeRealtime);
-#endif
             } else if (device_state_ == kDeviceStateSpeaking) {
                 AbortSpeaking(kAbortReasonWakeWordDetected);
             } else if (device_state_ == kDeviceStateActivating) {
@@ -853,8 +850,15 @@ void Application::OnAudioOutput() {
         if (listening_mode_ == kListeningModeRealtime) {
             AudioStreamPacket reference_packet;
             reference_packet.payload = std::move(opus_data_copy);
-            reference_packet.pcm_payload = pcm;
-            reference_packet.sample_rate = opus_decoder_->sample_rate();
+            if (opus_decoder_->sample_rate() != protocol_->server_sample_rate()) {
+                auto resampled = std::vector<int16_t>(output_reference_resampler_.GetOutputSamples(pcm.size()));
+                output_reference_resampler_.Process(pcm.data(), pcm.size(), resampled.data()); //重采样到上行采样率
+                reference_packet.pcm_payload = std::move(resampled);
+            } else {
+                reference_packet.pcm_payload = pcm;
+            }
+
+            reference_packet.sample_rate = protocol_->server_sample_rate();
             protocol_->SendAecReferenceAudio(reference_packet);
         }
 #endif
@@ -1060,7 +1064,32 @@ void Application::SetDecodeSampleRate(int sample_rate, int frame_duration) {
         ESP_LOGI(TAG, "Resampling audio from %d to %d", opus_decoder_->sample_rate(), codec->output_sample_rate());
         output_resampler_.Configure(opus_decoder_->sample_rate(), codec->output_sample_rate());
     }
+
+#if defined(CONFIG_CONNECTION_TYPE_NERTC) && defined(CONFIG_USE_NERTC_SERVER_AEC)
+    if (opus_decoder_->sample_rate() != protocol_->server_sample_rate()) {
+        output_reference_resampler_.Configure(opus_decoder_->sample_rate(), protocol_->server_sample_rate());
+    }
+#endif
+
 }
+
+#if defined(CONFIG_CONNECTION_TYPE_NERTC) && defined(CONFIG_USE_NERTC_SERVER_AEC)
+void Application::SetEncodeSampleRate(int sample_rate, int frame_duration) {
+    if (opus_encoder_->sample_rate() == sample_rate && opus_encoder_->duration_ms() == frame_duration) {
+        return;
+    }
+
+    opus_encoder_.reset();
+    opus_encoder_ = std::make_unique<OpusEncoderWrapper>(sample_rate, 1, frame_duration);
+
+    auto codec = Board::GetInstance().GetAudioCodec();
+    if (opus_encoder_->sample_rate() != codec->input_sample_rate()) {
+        ESP_LOGI(TAG, "Encode Resampling audio from %d to %d", codec->input_sample_rate(), opus_encoder_->sample_rate());
+        input_resampler_.Configure(codec->input_sample_rate(), opus_encoder_->sample_rate());
+        reference_resampler_.Configure(codec->input_sample_rate(), opus_encoder_->sample_rate());
+    }
+}
+#endif
 
 void Application::UpdateIotStates() {
 #if CONFIG_IOT_PROTOCOL_XIAOZHI
@@ -1137,6 +1166,12 @@ void Application::SetAecMode(AecMode mode) {
             audio_processor_->EnableDeviceAec(true);
             display->ShowNotification(Lang::Strings::RTC_MODE_ON);
             break;
+#if defined(CONFIG_USE_NERTC_SERVER_AEC)
+        case kAecOnNertc:
+            audio_processor_->EnableDeviceAec(false);
+            display->ShowNotification(Lang::Strings::RTC_MODE_ON);
+            break;
+#endif
         }
 
         // If the AEC mode is changed, close the audio channel

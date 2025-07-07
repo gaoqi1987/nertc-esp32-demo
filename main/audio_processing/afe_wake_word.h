@@ -21,7 +21,7 @@
 class AfeWakeWord : public WakeWord {
 public:
     AfeWakeWord();
-    ~AfeWakeWord();
+    virtual ~AfeWakeWord();
 
     void Initialize(AudioCodec* codec);
     void Feed(const std::vector<int16_t>& data);

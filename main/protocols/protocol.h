@@ -11,9 +11,11 @@ struct AudioStreamPacket {
     int sample_rate = 0;
     int frame_duration = 0;
     uint32_t timestamp = 0;
-    bool muted = false;
     std::vector<uint8_t> payload;
+#if defined(CONFIG_CONNECTION_TYPE_NERTC)
+    bool muted = false;
     std::vector<int16_t> pcm_payload; 
+#endif
 };
 
 struct BinaryProtocol2 {
@@ -53,9 +55,11 @@ public:
     inline int server_frame_duration() const {
         return server_frame_duration_;
     }
+#if defined(CONFIG_CONNECTION_TYPE_NERTC)
     inline int samples_per_channel() const {
         return samples_per_channel_;
     }
+#endif
     inline const std::string& session_id() const {
         return session_id_;
     }
@@ -89,7 +93,9 @@ protected:
 
     int server_sample_rate_ = 24000;
     int server_frame_duration_ = 60;
+#if defined(CONFIG_CONNECTION_TYPE_NERTC)
     int samples_per_channel_ = 480;
+#endif
     bool error_occurred_ = false;
     std::string session_id_;
     std::chrono::time_point<std::chrono::steady_clock> last_incoming_time_;
