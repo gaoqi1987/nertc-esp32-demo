@@ -89,18 +89,20 @@ typedef struct nertc_sdk_audio_config {
   int channels;
   /** 每个声道的采样点数 */
   int samples_per_channel;
+  /** 接收音频采样率 */
+  int out_sample_rate;
 } nertc_sdk_audio_config_t;
 
 typedef struct nertc_sdk_recommended_config {
   /** 走服务端 AEC 时需要参考的音频采集配置 */
-  nertc_sdk_audio_config recommended_audio_config;
+  nertc_sdk_audio_config_t recommended_audio_config;
 } nertc_sdk_recommended_config_t;
 
 typedef struct nertc_sdk_audio_frame {
   /** 音频PCM格式 */
   nertc_sdk_audio_pcm_type_e type;
   /** 音频配置信息 */
-  nertc_sdk_audio_config config;
+  nertc_sdk_audio_config_t config;
   /** 音频帧数据 */
   void* data;
   /** 音频帧数据的长度 */

@@ -97,7 +97,7 @@ NERTC_SDK_API int nertc_push_audio_frame(nertc_sdk_engine_t engine,
  */
 NERTC_SDK_API int nertc_push_audio_encoded_frame(nertc_sdk_engine_t engine, 
                                                  nertc_sdk_media_stream_e stream_type, 
-                                                 nertc_sdk_audio_config audio_config,
+                                                 nertc_sdk_audio_config_t audio_config,
                                                  uint8_t audio_rms_level,
                                                  nertc_sdk_audio_encoded_frame_t* audio_encoded_frame);
 /**
