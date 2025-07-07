@@ -49,7 +49,7 @@ private:
     std::atomic<bool> audio_channel_opened_ {false}; 
     uint64_t cid_ { 0 }; 
     uint64_t uid_ { 0 };
-    nertc_sdk_audio_config recommended_audio_config_ { 0 };
+    nertc_sdk_audio_config_t recommended_audio_config_ { 0 };
     esp_timer_handle_t asr_timer_ { nullptr };
     esp_timer_handle_t close_timer_ { nullptr };
 
