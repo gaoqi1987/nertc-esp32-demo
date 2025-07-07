@@ -143,7 +143,7 @@ void (*on_audio_encoded_data)(const nertc_sdk_callback_context_t* ctx, uint64_t 
 typedef struct nertc_sdk_config {
   const char *app_key;    /**< 应用的AppKey */
   const char *device_id;  /**< 设备ID */
-  nertc_sdk_audio_config audio_config;  /**< 走设备本地 AEC 时的音频配置 */
+  nertc_sdk_audio_config_t audio_config;  /**< 走设备本地 AEC 时的音频配置 */
   nertc_sdk_event_handle_t event_handler;
   nertc_sdk_user_data_t user_data;
   // nertc_sdk_log_config_t log_cfg;
