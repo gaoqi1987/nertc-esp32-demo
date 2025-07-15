@@ -847,7 +847,7 @@ void Application::OnAudioOutput() {
         }
 
 #if defined(CONFIG_CONNECTION_TYPE_NERTC) && defined(CONFIG_USE_NERTC_SERVER_AEC)
-        if (listening_mode_ == kListeningModeRealtime) {
+        if (protocol_ && protocol_->IsAudioChannelOpened() && packet.frame_duration == protocol_->server_frame_duration() && listening_mode_ == kListeningModeRealtime) {
             AudioStreamPacket reference_packet;
             reference_packet.payload = std::move(opus_data_copy);
             if (opus_decoder_->sample_rate() != protocol_->server_sample_rate()) {
@@ -1049,6 +1049,12 @@ void Application::ResetDecoder() {
     last_output_time_ = std::chrono::steady_clock::now();
     auto codec = Board::GetInstance().GetAudioCodec();
     codec->EnableOutput(true);
+#if defined(CONFIG_CONNECTION_TYPE_NERTC) && defined(CONFIG_USE_NERTC_SERVER_AEC)
+    if (protocol_ && opus_decoder_->sample_rate() != protocol_->server_sample_rate()) {
+        ESP_LOGI(TAG, "output_reference_resampler Resampling audio from %d to %d", opus_decoder_->sample_rate(), protocol_->server_sample_rate());
+        output_reference_resampler_.Configure(opus_decoder_->sample_rate(), protocol_->server_sample_rate());
+    }
+#endif
 }
 
 void Application::SetDecodeSampleRate(int sample_rate, int frame_duration) {
@@ -1067,6 +1073,7 @@ void Application::SetDecodeSampleRate(int sample_rate, int frame_duration) {
 
 #if defined(CONFIG_CONNECTION_TYPE_NERTC) && defined(CONFIG_USE_NERTC_SERVER_AEC)
     if (protocol_ && opus_decoder_->sample_rate() != protocol_->server_sample_rate()) {
+        ESP_LOGI(TAG, "output_reference_resampler Resampling audio from %d to %d", opus_decoder_->sample_rate(), protocol_->server_sample_rate());
         output_reference_resampler_.Configure(opus_decoder_->sample_rate(), protocol_->server_sample_rate());
     }
 #endif

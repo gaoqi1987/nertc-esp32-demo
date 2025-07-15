@@ -41,9 +41,10 @@ NeRtcProtocol::NeRtcProtocol() {
     nertc_sdk_config.app_key = CONFIG_NERTC_APPKEY;
     nertc_sdk_config.device_id = device_id.c_str();
     //如果打开服务端aec，这3个参数会由sdk内部控制
-    nertc_sdk_config.audio_config.sample_rate = 16000; 
+    nertc_sdk_config.audio_config.sample_rate = 8000; 
     nertc_sdk_config.audio_config.channels = 1;
-    nertc_sdk_config.audio_config.frame_duration = OPUS_FRAME_DURATION_MS; 
+    nertc_sdk_config.audio_config.frame_duration = OPUS_FRAME_DURATION_MS;
+    nertc_sdk_config.audio_config.out_sample_rate = 24000; //指定下行采样率使用24k
 
     nertc_sdk_config.event_handler.on_error = OnError;
     nertc_sdk_config.event_handler.on_channel_status_changed = OnChannelStatusChanged;
@@ -65,7 +66,7 @@ NeRtcProtocol::NeRtcProtocol() {
         return;
     }
 
-    ESP_LOGI(TAG, "create NeRtcProtocol success device_id:%s", device_id.c_str());
+    ESP_LOGI(TAG, "create NeRtcProtocol success device_id:%s rtc_sdk version:%s", device_id.c_str(), nertc_get_version());
 
     // create close ai timer
     const esp_timer_create_args_t timer_args = {
@@ -98,7 +99,7 @@ NeRtcProtocol::~NeRtcProtocol() {
     }
 
     if (engine_) {
-        nertc_destory_engine(engine_);
+        nertc_destroy_engine(engine_);
         engine_ = nullptr;
     }
 }
@@ -187,7 +188,7 @@ bool NeRtcProtocol::IsAudioChannelOpened() const {
 }
 
 bool NeRtcProtocol::SendAudio(const AudioStreamPacket& packet) {
-    if (!engine_)
+    if (!engine_ || !join_.load())
         return false;
 
     if(packet.pcm_payload.empty()) {
@@ -378,8 +379,10 @@ void NeRtcProtocol::OnChannelStatusChanged(const nertc_sdk_callback_context_t* c
 }
 
 void NeRtcProtocol::OnJoin(const nertc_sdk_callback_context_t* ctx, uint64_t cid, uint64_t uid, nertc_sdk_error_code_e code, uint64_t elapsed, const nertc_sdk_recommended_config_t* recommended_config) {
-    ESP_LOGI(TAG, "NERtc OnJoin: cid:%s, uid:%s, code:%d, elapsed:%s sample_rate:%d samples_per_channel:%d frame_duration:%d", 
-                std::to_string(cid).c_str(), std::to_string(uid).c_str(), code, std::to_string(elapsed).c_str(), recommended_config->recommended_audio_config.sample_rate, recommended_config->recommended_audio_config.samples_per_channel, recommended_config->recommended_audio_config.frame_duration);
+    ESP_LOGI(TAG, "NERtc OnJoin: cid:%s, uid:%s, code:%d, elapsed:%s sample_rate:%d samples_per_channel:%d frame_duration:%d out_sample_rate:%d", 
+                std::to_string(cid).c_str(), std::to_string(uid).c_str(), code, std::to_string(elapsed).c_str(), 
+                recommended_config->recommended_audio_config.sample_rate, recommended_config->recommended_audio_config.samples_per_channel, 
+                recommended_config->recommended_audio_config.frame_duration, recommended_config->recommended_audio_config.out_sample_rate);
 
     NeRtcProtocol* instance = static_cast<NeRtcProtocol*>(ctx->user_data);
     if (ctx->engine && instance) {
@@ -539,7 +542,7 @@ void NeRtcProtocol::OnAudioData(const nertc_sdk_callback_context_t* ctx, uint64_
     }
 
     if (instance->on_incoming_audio_ != nullptr) {
-        instance->on_incoming_audio_(AudioStreamPacket{.sample_rate = instance->server_sample_rate_,
+        instance->on_incoming_audio_(AudioStreamPacket{.sample_rate = instance->recommended_audio_config_.out_sample_rate,
                                                         .frame_duration = instance->server_frame_duration_,
                                                         .timestamp = 0,
                                                         .payload = std::move(payload_vector),
