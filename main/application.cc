@@ -31,7 +31,6 @@
 #include "no_wake_word.h"
 #endif
 
-
 #include <cstring>
 #include <esp_log.h>
 #include <cJSON.h>
@@ -39,7 +38,6 @@
 #include <arpa/inet.h>
 
 #define TAG "Application"
-
 
 static const char* const STATE_STRINGS[] = {
     "unknown",
@@ -465,13 +463,10 @@ void Application::Start() {
         Alert(Lang::Strings::ERROR, message.c_str(), "sad", Lang::Sounds::P3_EXCLAMATION);
     });
     protocol_->OnIncomingAudio([this](AudioStreamPacket&& packet) {
-        std::lock_guard<std::mutex> lock(mutex_);
-
 #if defined(CONFIG_CONNECTION_TYPE_NERTC) && defined(CONFIG_USE_NERTC_SERVER_AEC)
-        if (audio_decode_queue_.size() < MAX_AUDIO_PACKETS_IN_QUEUE) {
-            audio_decode_queue_.emplace_back(std::move(packet));
-        }
+        OnNertcAudioOutput(std::move(packet));
 #else
+        std::lock_guard<std::mutex> lock(mutex_);
         if (device_state_ == kDeviceStateSpeaking && audio_decode_queue_.size() < MAX_AUDIO_PACKETS_IN_QUEUE) {
             audio_decode_queue_.emplace_back(std::move(packet));
         }
@@ -515,7 +510,9 @@ void Application::Start() {
                 });
             } else if (strcmp(state->valuestring, "stop") == 0) {
                 Schedule([this]() {
+#ifndef CONFIG_USE_NERTC_SERVER_AEC
                     background_task_->WaitForCompletion();
+#endif
                     if (device_state_ == kDeviceStateSpeaking) {
                         if (listening_mode_ == kListeningModeManualStop) {
                             SetDeviceState(kDeviceStateIdle);
@@ -602,7 +599,11 @@ void Application::Start() {
     audio_processor_->Initialize(codec);
     audio_processor_->OnOutput([this](std::vector<int16_t>&& data) {
         {
-            std::lock_guard<std::mutex> lock(mutex_);
+#if defined(CONFIG_CONNECTION_TYPE_NERTC)
+            std::unique_lock<std::mutex> lock(send_queue_mutex_);
+#else
+            std::unique_lock<std::mutex> lock(mutex_);
+#endif
             if (audio_send_queue_.size() >= MAX_AUDIO_PACKETS_IN_QUEUE) {
                 ESP_LOGW(TAG, "Too many audio packets in queue, drop the newest packet");
                 return;
@@ -637,7 +638,11 @@ void Application::Start() {
                     }
                 }
 #endif
-                std::lock_guard<std::mutex> lock(mutex_);
+#if defined(CONFIG_CONNECTION_TYPE_NERTC)
+                std::unique_lock<std::mutex> lock(send_queue_mutex_);
+#else
+                std::unique_lock<std::mutex> lock(mutex_);
+#endif
                 if (audio_send_queue_.size() >= MAX_AUDIO_PACKETS_IN_QUEUE) {
                     ESP_LOGW(TAG, "Too many audio packets in queue, drop the oldest packet");
                     audio_send_queue_.pop_front();
@@ -661,7 +666,6 @@ void Application::Start() {
             });
         }
     });
-
     wake_word_->Initialize(codec);
     wake_word_->OnWakeWordDetected([this](const std::string& wake_word) {
         Schedule([this, &wake_word]() {
@@ -719,6 +723,10 @@ void Application::Start() {
         // Play the success sound to indicate the device is ready
         ResetDecoder();
         PlaySound(Lang::Sounds::P3_SUCCESS);
+#ifdef CONFIG_CONNECTION_TYPE_NERTC
+        if (audio_debugger_)
+            audio_debugger_->SendAudioInfo(protocol_->server_sample_rate(), 1);
+#endif
     }
 
     // Print heap stats
@@ -758,7 +766,11 @@ void Application::OnClockTimer() {
 // Add a async task to MainLoop
 void Application::Schedule(std::function<void()> callback) {
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+#if defined(CONFIG_CONNECTION_TYPE_NERTC)
+        std::unique_lock<std::mutex> lock(main_mutex_);
+#else
+        std::unique_lock<std::mutex> lock(mutex_);
+#endif
         main_tasks_.push_back(std::move(callback));
     }
     xEventGroupSetBits(event_group_, SCHEDULE_EVENT);
@@ -775,7 +787,11 @@ void Application::MainEventLoop() {
         auto bits = xEventGroupWaitBits(event_group_, SCHEDULE_EVENT | SEND_AUDIO_EVENT, pdTRUE, pdFALSE, portMAX_DELAY);
 
         if (bits & SEND_AUDIO_EVENT) {
+#if defined(CONFIG_CONNECTION_TYPE_NERTC)
+            std::unique_lock<std::mutex> lock(send_queue_mutex_);
+#else
             std::unique_lock<std::mutex> lock(mutex_);
+#endif
             auto packets = std::move(audio_send_queue_);
             lock.unlock();
             for (auto& packet : packets) {
@@ -786,7 +802,11 @@ void Application::MainEventLoop() {
         }
 
         if (bits & SCHEDULE_EVENT) {
+#if defined(CONFIG_CONNECTION_TYPE_NERTC)
+            std::unique_lock<std::mutex> lock(main_mutex_);
+#else
             std::unique_lock<std::mutex> lock(mutex_);
+#endif
             auto tasks = std::move(main_tasks_);
             lock.unlock();
             for (auto& task : tasks) {
@@ -884,6 +904,68 @@ void Application::OnAudioOutput() {
     });
 }
 
+#ifdef CONFIG_CONNECTION_TYPE_NERTC
+void Application::OnNertcAudioOutput(AudioStreamPacket&& packet) {
+    if (busy_decoding_audio_) {
+        return;
+    }
+
+    auto codec = Board::GetInstance().GetAudioCodec();
+ 
+    audio_decode_cv_.notify_all();
+
+    // Synchronize the sample rate and frame duration
+    SetDecodeSampleRate(packet.sample_rate, packet.frame_duration);
+
+    busy_decoding_audio_ = true;
+    background_task_->Schedule([this, codec, packet = std::move(packet)]() mutable {
+        busy_decoding_audio_ = false;
+        if (aborted_) {
+            return;
+        }
+
+        std::vector<int16_t> pcm;
+#if defined(CONFIG_CONNECTION_TYPE_NERTC) && defined(CONFIG_USE_NERTC_SERVER_AEC)
+        std::vector<uint8_t> opus_data_copy = packet.payload;
+#endif
+        if (!opus_decoder_->Decode(std::move(packet.payload), pcm)) {
+            return;
+        }
+
+#if defined(CONFIG_CONNECTION_TYPE_NERTC) && defined(CONFIG_USE_NERTC_SERVER_AEC)
+        if (protocol_ && protocol_->IsAudioChannelOpened() && packet.frame_duration == protocol_->server_frame_duration() && listening_mode_ == kListeningModeRealtime) {
+            AudioStreamPacket reference_packet;
+            reference_packet.payload = std::move(opus_data_copy);
+            if (opus_decoder_->sample_rate() != protocol_->server_sample_rate()) {
+                auto resampled = std::vector<int16_t>(output_reference_resampler_.GetOutputSamples(pcm.size()));
+                output_reference_resampler_.Process(pcm.data(), pcm.size(), resampled.data()); //重采样到上行采样率
+                reference_packet.pcm_payload = std::move(resampled);
+            } else {
+                reference_packet.pcm_payload = pcm;
+            }
+
+            reference_packet.sample_rate = protocol_->server_sample_rate();
+            protocol_->SendAecReferenceAudio(reference_packet);
+        }
+#endif
+
+        // Resample if the sample rate is different
+        if (opus_decoder_->sample_rate() != codec->output_sample_rate()) {
+            int target_size = output_resampler_.GetOutputSamples(pcm.size());
+            std::vector<int16_t> resampled(target_size);
+            output_resampler_.Process(pcm.data(), pcm.size(), resampled.data());
+            pcm = std::move(resampled);
+        }
+        codec->OutputData(pcm);
+#ifdef CONFIG_USE_SERVER_AEC
+        std::lock_guard<std::mutex> lock(timestamp_mutex_);
+        timestamp_queue_.push_back(packet.timestamp);
+#endif
+        last_output_time_ = std::chrono::steady_clock::now();
+    });
+}
+#endif // CONFIG_CONNECTION_TYPE_NERTC
+
 void Application::OnAudioInput() {
     if (wake_word_->IsDetectionRunning()) {
         std::vector<int16_t> data;
@@ -955,7 +1037,11 @@ bool Application::ReadAudio(std::vector<int16_t>& data, int sample_rate, int sam
     }
     
     // 音频调试：发送原始音频数据
+#ifdef CONFIG_CONNECTION_TYPE_NERTC
+    if (audio_debugger_ && protocol_ && protocol_->IsAudioChannelOpened()) {
+#else
     if (audio_debugger_) {
+#endif
         audio_debugger_->Feed(data);
     }
     
@@ -983,7 +1069,9 @@ void Application::SetDeviceState(DeviceState state) {
     device_state_ = state;
     ESP_LOGI(TAG, "STATE: %s", STATE_STRINGS[device_state_]);
     // The state is changed, wait for all background tasks to finish
+#ifndef CONFIG_USE_NERTC_SERVER_AEC
     background_task_->WaitForCompletion();
+#endif
 
     auto& board = Board::GetInstance();
     auto display = board.GetDisplay();

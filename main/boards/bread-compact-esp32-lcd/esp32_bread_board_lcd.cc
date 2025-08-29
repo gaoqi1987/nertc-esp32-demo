@@ -156,6 +156,14 @@ private:
             app.ToggleChatState();
         });
 
+        boot_button_.OnDoubleClick([this]() {
+            auto& app = Application::GetInstance();
+            if (app.GetDeviceState() == kDeviceStateWifiConfiguring) {
+                auto& wifi_board = static_cast<WifiBoard&>(GetCurrentBoard());
+                wifi_board.ResetWifiConfigurationWithBlufi();
+            }
+        });
+
         asr_button_.OnClick([this]() {
             std::string wake_word="你好小智";
             Application::GetInstance().WakeWordInvoke(wake_word);

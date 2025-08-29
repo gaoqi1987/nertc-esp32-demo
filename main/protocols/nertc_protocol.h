@@ -9,6 +9,8 @@
 #include "protocol.h"
 #include "nertc_sdk.h"
 
+#define NERTC_ENABLE_CONFIG_FILE 1
+
 class NeRtcProtocol : public Protocol {
 public:
     NeRtcProtocol();
@@ -24,13 +26,17 @@ private:
     void RequestChecksum(std::string& checksum);
     void ParseFunctionCall(cJSON* data, std::string& arguments, std::string& name);
 
-    cJSON* BuildApplicationAsrProtocol(bool local_user ,const std::string& text);
+    cJSON* BuildApplicationAsrProtocol(bool local_user ,const char* text);
     cJSON* BuildApplicationTtsStateProtocol(const std::string& action);
     cJSON* BuildApplicationIotVolumeProtocol(int volume);
     cJSON* BuildApplicationIotStateProtocol(cJSON* commands);
+    cJSON* BuildApplicationXiaoZhiIotProtocol(const std::string& name, cJSON* arguments);
 
 private:
     static void OnError(const nertc_sdk_callback_context_t* ctx, nertc_sdk_error_code_e code, const char* msg);
+
+    static void OnLicenseExpireWarning(const nertc_sdk_callback_context_t* ctx, int remaining_days);
+
     static void OnChannelStatusChanged(const nertc_sdk_callback_context_t* ctx, nertc_sdk_channel_state_e status, const char *msg);
     static void OnJoin(const nertc_sdk_callback_context_t* ctx, uint64_t cid, uint64_t uid, nertc_sdk_error_code_e code, uint64_t elapsed, const nertc_sdk_recommended_config_t* recommended_config);
     static void OnDisconnect(const nertc_sdk_callback_context_t* ctx, nertc_sdk_error_code_e code, int reason);
@@ -53,15 +59,17 @@ private:
     esp_timer_handle_t asr_timer_ { nullptr };
     esp_timer_handle_t close_timer_ { nullptr };
 
-    bool phone_call_start_ { false }; // flag to indicate if phone call is in progress
-    uint64_t phone_uid_ { 0 }; // SIP phone UID
-    std::string phone_number_;
-
+    bool phone_call_suspend_ { false }; 
 private:
     bool SendText(const std::string& text) override;
 
-    bool SipPhoneCallStart(const std::string& phone_number);
-    bool SipPhoneCallEnd();
+#if NERTC_ENABLE_CONFIG_FILE
+    bool MountFileSystem();
+    void UnmountFileSystem();
+
+    std::string config_file_path_ = "/spiffs/config.json";
+    cJSON* ReadConfigJson();
+#endif
 };
 
 #endif

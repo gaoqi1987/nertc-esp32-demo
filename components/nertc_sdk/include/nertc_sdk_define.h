@@ -11,6 +11,12 @@ extern "C" {
 #define kNERtcMaxTokenLength 256
 
 typedef enum {
+  NERTC_SDK_DEVICE_LEVEL_NORMAL = 0,
+  NERTC_SDK_DEVICE_LEVEL_LOW = 1,
+  NERTC_SDK_DEVICE_LEVEL_HIGH = 2
+} nertc_sdk_device_level_e;
+
+typedef enum {
   NERTC_SDK_LOG_NONE = 0,
   NERTC_SDK_LOG_ERROR = 1,
   NERTC_SDK_LOG_WARNING = 2,
@@ -34,6 +40,7 @@ typedef enum {
 } nertc_sdk_user_type_e;
 
 typedef enum {
+  NERTC_SDK_MEDIA_UNKNOWN = -1,
   NERTC_SDK_MEDIA_MAIN_AUDIO = 0,
   NERTC_SDK_MEDIA_SUB_AUDIO = 1,
   NERTC_SDK_MEDIA_MAIN_VIDEO = 2,
@@ -56,6 +63,20 @@ typedef enum {
   NERTC_SDK_ASR_CAPTION_STATE_STARTED = 2,
   NERTC_SDK_ASR_CAPTION_STATE_STOPPED = 3
 } nertc_sdk_asr_caption_state_e;
+
+typedef struct nertc_sdk_optional_config {
+  nertc_sdk_device_level_e device_performance_level;
+  bool enable_server_aec;
+  char* custom_config;
+} nertc_sdk_optional_config_t;
+
+typedef struct nertc_sdk_licence_config {
+  const char* license;  // licence
+} nertc_sdk_licence_config_t;
+
+typedef struct nertc_sdk_log_config {
+  nertc_sdk_log_level_e log_level;
+} nertc_sdk_log_config_t;
 
 typedef struct nertc_sdk_user_info {
   /**
@@ -105,7 +126,7 @@ typedef struct nertc_sdk_audio_frame {
   nertc_sdk_audio_config_t config;
   /** 音频帧数据 */
   void* data;
-  /** 音频帧数据的长度 */
+  /** 音频帧数据int16的长度 */
   int length;
 } nertc_sdk_audio_frame_t;
 
@@ -165,4 +186,4 @@ typedef struct nertc_sdk_ai_data_result {
 }
 #endif
 
-#endif // __NERTC_SDK_DEFINE_H__
+#endif  // __NERTC_SDK_DEFINE_H__

@@ -1,5 +1,5 @@
-#ifndef _NERTC_SDK_H_
-#define _NERTC_SDK_H_
+#ifndef __NERTC_SDK_H__
+#define __NERTC_SDK_H__
 
 #include "nertc_sdk_event.h"
 #include "nertc_sdk_error.h"
@@ -52,9 +52,9 @@ NERTC_SDK_API int nertc_init(nertc_sdk_engine_t engine);
  *         - 非0：失败 <br>
  */
 NERTC_SDK_API int nertc_join(nertc_sdk_engine_t engine,
-                            const char* channel_name, 
-                            const char * token,
-                            uint64_t uid);
+                             const char* channel_name, 
+                             const char * token,
+                             uint64_t uid);
 
 /**
  * @brief 离开房间
@@ -163,6 +163,14 @@ NERTC_SDK_API int nertc_stop_ai(nertc_sdk_engine_t engine);
  */
 NERTC_SDK_API int nertc_ai_manual_interrupt(nertc_sdk_engine_t engine);
 
+/**
+ * @brief 挂断电话
+ * @param engine 通过 nertc_create_engine 创建且通过 nertc_init 初始化之后的引擎实例
+ * @return 方法调用结果：<br>
+ *         -   0：成功 <br>
+ *         - 非0：失败 <br>
+ */
+NERTC_SDK_API int nertc_ai_hang_up(nertc_sdk_engine_t engine);
 
 #ifdef __cplusplus
 }

@@ -23,6 +23,10 @@
 
 static const char *TAG = "WifiBoard";
 
+#ifdef SUPPORT_BLUFI_FOR_NERTC
+#include "blufi/blufi_wifi.h"
+#endif
+
 #ifdef CONFIG_CONNECTION_TYPE_NERTC
 #define NERTC_BOARD_NAME "yunxin"
 #endif
@@ -34,6 +38,15 @@ WifiBoard::WifiBoard() {
         ESP_LOGI(TAG, "force_ap is set to 1, reset to 0");
         settings.SetInt("force_ap", 0);
     }
+#ifdef SUPPORT_BLUFI_FOR_NERTC
+    bool force_blufi = settings.GetInt("force_blufi") == 1;
+    if (force_blufi) {
+        ESP_LOGI(TAG, "force_blufi is set to 1, reset to 0");
+        settings.SetInt("force_blufi", 0);
+
+        EnterWifiConfigModeWithBlufi();
+    }
+#endif
 }
 
 std::string WifiBoard::GetBoardType() {
@@ -71,6 +84,27 @@ void WifiBoard::EnterWifiConfigMode() {
         vTaskDelay(pdMS_TO_TICKS(10000));
     }
 }
+
+#ifdef SUPPORT_BLUFI_FOR_NERTC
+void WifiBoard::EnterWifiConfigModeWithBlufi() {
+    int free_sram = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+    int min_free_sram = heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL);
+    ESP_LOGI(TAG, "EnterWifiConfigModeWithBlufi Free internal: %u minimal internal: %u", free_sram, min_free_sram);
+
+    wifi_credential_t wifi_cred = initialise_wifi_and_blufi(NERTC_BOARD_NAME); //会阻塞
+    if (wifi_cred.succ == 1) {
+        ESP_LOGI(TAG, "BLUFI WiFi connected! SSID: %s", wifi_cred.ssid);
+        SsidManager::GetInstance().AddSsid(wifi_cred.ssid, wifi_cred.password);
+    } else {
+        ESP_LOGE(TAG, "BLUFI WiFi connection failed");
+    }
+
+    ESP_LOGI(TAG, "BLUFI WiFi configuration completed, restarting...");
+    vTaskDelay(pdMS_TO_TICKS(200));
+    // 执行重启
+    esp_restart();
+}
+#endif
 
 void WifiBoard::StartNetwork() {
     // User can press BOOT button while starting to enter WiFi configuration mode
@@ -189,6 +223,24 @@ void WifiBoard::ResetWifiConfiguration() {
     }
     GetDisplay()->ShowNotification(Lang::Strings::ENTERING_WIFI_CONFIG_MODE);
     vTaskDelay(pdMS_TO_TICKS(1000));
+    // Reboot the device
+    esp_restart();
+}
+
+void WifiBoard::ResetWifiConfigurationWithBlufi() {
+    // Set a flag and reboot the device to enter the wifi blufi mode
+    {
+        Settings settings("wifi", true);
+        settings.SetInt("force_blufi", 1);
+    }
+    GetDisplay()->ShowNotification(Lang::Strings::ENTERING_WIFI_CONFIG_MODE);
+
+    // 播报配置 WiFi 的提示
+    std::string hint = "进入蓝牙配网模式";
+    auto& application = Application::GetInstance();
+    application.Alert(Lang::Strings::WIFI_CONFIG_MODE, hint.c_str(), "", Lang::Sounds::P3_BLUFI);
+
+    vTaskDelay(pdMS_TO_TICKS(3000));
     // Reboot the device
     esp_restart();
 }

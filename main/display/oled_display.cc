@@ -21,8 +21,13 @@ OledDisplay::OledDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_handl
 
     ESP_LOGI(TAG, "Initialize LVGL");
     lvgl_port_cfg_t port_cfg = ESP_LVGL_PORT_INIT_CONFIG();
+#if defined(CONFIG_IDF_TARGET_ESP32C3) && defined(CONFIG_USE_NERTC_SERVER_AEC)
+    port_cfg.task_priority = 0; //降低优先级
+    port_cfg.timer_period_ms = 200; //增加UI刷新时间
+#else
     port_cfg.task_priority = 1;
     port_cfg.timer_period_ms = 50;
+#endif
     lvgl_port_init(&port_cfg);
 
     ESP_LOGI(TAG, "Adding OLED display");

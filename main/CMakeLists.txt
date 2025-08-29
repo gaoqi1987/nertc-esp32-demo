@@ -3,7 +3,8 @@ set(SOURCES "audio_codecs/audio_codec.cc"
             "audio_codecs/box_audio_codec.cc"
             "audio_codecs/es8311_audio_codec.cc"
             "audio_codecs/es8374_audio_codec.cc"
-            "audio_codecs/es8388_audio_codec.cc"
+            #"audio_codecs/es8388_audio_codec.cc"
+            #"audio_codecs/jy6311_audio_codec.cc"
             "audio_processing/audio_debugger.cc"
             "led/single_led.cc"
             "led/circular_strip.cc"
@@ -33,6 +34,12 @@ list(APPEND SOURCES ${IOT_SOURCES})
 
 # 添加板级公共文件
 file(GLOB BOARD_COMMON_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/boards/common/*.cc)
+if(CONFIG_IDF_TARGET_ESP32S3 AND CONFIG_CONNECTION_TYPE_NERTC AND NOT CONFIG_BOARD_TYPE_LICHUANG_DEV)
+    message(STATUS "Including BLUFI support for ESP32-S3 with NERTC")
+    file(GLOB BLUFI_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/boards/common/blufi/*.c)
+    list(APPEND BOARD_COMMON_SOURCES ${BLUFI_SOURCES})
+    add_definitions(-DSUPPORT_BLUFI_FOR_NERTC=1)
+endif()
 list(APPEND SOURCES ${BOARD_COMMON_SOURCES})
 list(APPEND INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/boards/common)
 
@@ -167,6 +174,8 @@ elseif(CONFIG_BOARD_TYPE_SENSECAP_WATCHER)
     set(BOARD_TYPE "sensecap-watcher")
 elseif(CONFIG_BOARD_TYPE_DOIT_S3_AIBOX)
     set(BOARD_TYPE "doit-s3-aibox")
+elseif(CONFIG_BOARD_TYPE_DOIT_AI_SPEAKER)
+    set(BOARD_TYPE "doit-ai-speaker")
 elseif(CONFIG_BOARD_TYPE_MIXGO_NOVA)
     set(BOARD_TYPE "mixgo-nova")
 elseif(CONFIG_BOARD_TYPE_GENJUTECH_S3_1_54TFT)
@@ -191,6 +200,12 @@ elseif(CONFIG_BOARD_TYPE_OTTO_ROBOT)
     set(BOARD_TYPE "otto-robot")
 elseif(CONFIG_BOARD_TYPE_ELECTRON_BOT)
     set(BOARD_TYPE "electron-bot")
+endif()
+if(CONFIG_CODEC_JY6311_SUPPORT)
+    list(APPEND SOURCES "audio_codecs/jy6311_audio_codec.cc")
+endif()
+if(CONFIG_CODEC_ES8388_SUPPORT)
+    list(APPEND SOURCES "audio_codecs/es8311_audio_codec.cc")
 endif()
 file(GLOB BOARD_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/boards/${BOARD_TYPE}/*.cc
