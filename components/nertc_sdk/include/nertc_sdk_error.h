@@ -46,6 +46,21 @@ typedef enum {
   /* Invalid state */
   NERTC_SDK_ERR_INVALID_STATE                             = 30005,
 
+  /* 许可证不合法 */
+  NERTC_SDK_ERR_LICENSE_ILLEGAL                           = 30060,
+
+  /* 许可证不存在 */
+  NERTC_SDK_ERR_LICENSE_NOT_EXIST                         = 30061,
+
+  /* 许可证校验失败 */
+  NERTC_SDK_ERR_LICENSE_CHECK_FAILED                      = 30062,
+
+  /* 许可证已过期 */
+  NERTC_SDK_ERR_LICENSE_EXPIRED                           = 30063,
+
+  /* 许可证未激活 */
+  NERTC_SDK_ERR_LICENSE_NOT_ACTIVATED                     = 30064,
+
   /** 用户未找到 */
   NERTC_SDK_ERR_USER_NOT_FOUND                            = 30105,       
 
@@ -59,8 +74,7 @@ typedef enum {
   NERTC_SDK_ERR_KICKED_BY_SERVER                          = 30206,             
 
   /** 房间已被关闭 */
-  NERTC_SDK_ERR_KICKED_BY_CHANNEL_CLOSED                  = 30207,         
-
+  NERTC_SDK_ERR_KICKED_BY_CHANNEL_CLOSED                  = 30207,
 } nertc_sdk_error_code_e;
 
 #ifdef __cplusplus

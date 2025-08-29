@@ -114,6 +114,14 @@ private:
             }
             app.ToggleChatState();
         });
+
+        boot_button_.OnDoubleClick([this]() {
+            auto& app = Application::GetInstance();
+            if (app.GetDeviceState() == kDeviceStateWifiConfiguring) {
+                this->ResetWifiConfigurationWithBlufi();
+            }
+        });
+
         touch_button_.OnPressDown([this]() {
             Application::GetInstance().StartListening();
         });

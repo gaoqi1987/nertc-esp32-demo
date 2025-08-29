@@ -113,6 +113,9 @@ private:
             auto& app = Application::GetInstance();
             if (app.GetDeviceState() == kDeviceStateStarting || app.GetDeviceState() == kDeviceStateWifiConfiguring) {
                 SwitchNetworkType();
+            } else if (app.GetDeviceState() == kDeviceStateWifiConfiguring) {
+                auto& wifi_board = static_cast<WifiBoard&>(GetCurrentBoard());
+                wifi_board.ResetWifiConfigurationWithBlufi();
             }
         });
 

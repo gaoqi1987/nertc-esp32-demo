@@ -7,6 +7,9 @@ class WifiBoard : public Board {
 protected:
     bool wifi_config_mode_ = false;
     void EnterWifiConfigMode();
+#ifdef SUPPORT_BLUFI_FOR_NERTC
+    void EnterWifiConfigModeWithBlufi();
+#endif
     virtual std::string GetBoardJson() override;
 
 public:
@@ -20,6 +23,7 @@ public:
     virtual const char* GetNetworkStateIcon() override;
     virtual void SetPowerSaveMode(bool enabled) override;
     virtual void ResetWifiConfiguration();
+    virtual void ResetWifiConfigurationWithBlufi();
     virtual AudioCodec* GetAudioCodec() override { return nullptr; }
     virtual std::string GetDeviceStatusJson() override;
 };

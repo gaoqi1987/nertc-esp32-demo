@@ -96,6 +96,10 @@ private:
     std::unique_ptr<AudioProcessor> audio_processor_;
     std::unique_ptr<AudioDebugger> audio_debugger_;
     Ota ota_;
+#if defined(CONFIG_CONNECTION_TYPE_NERTC)
+    std::mutex main_mutex_;
+    std::mutex send_queue_mutex_;
+#endif
     std::mutex mutex_;
     std::list<std::function<void()>> main_tasks_;
     std::unique_ptr<Protocol> protocol_;
@@ -129,12 +133,16 @@ private:
     OpusResampler input_resampler_;
     OpusResampler reference_resampler_;
     OpusResampler output_resampler_;
+
 #if defined(CONFIG_CONNECTION_TYPE_NERTC)
     OpusResampler output_reference_resampler_;
 #endif
     void MainEventLoop();
     void OnAudioInput();
     void OnAudioOutput();
+#ifdef CONFIG_CONNECTION_TYPE_NERTC
+    void OnNertcAudioOutput(AudioStreamPacket&& packet);
+#endif
     bool ReadAudio(std::vector<int16_t>& data, int sample_rate, int samples);
     void ResetDecoder();
     void SetDecodeSampleRate(int sample_rate, int frame_duration);

@@ -263,6 +263,8 @@ choice BOARD_TYPE
         depends on IDF_TARGET_ESP32S3
         select LV_USE_GIF
         select LV_GIF_CACHE_DECODE_DATA
+    config BOARD_TYPE_DOIT_AI_SPEAKER
+        bool "Doit-AI-SPEAKER"
 endchoice
 
 choice ESP_S3_LCD_EV_Board_Version_TYPE
@@ -357,26 +359,33 @@ config CONNECTION_TYPE_NERTC
     help
         使用网易云信传输
 
+if CONNECTION_TYPE_NERTC
+
 config NERTC_APPKEY
-    depends on CONNECTION_TYPE_NERTC
     string "NERTC Appkey"
     default "test-appkey"
     help
         Appkey for nertc communication.
 
+config NERTC_CUSTOM_SETTING
+    string "NERTC Custom Setting"
+    default ""
+    help
+        custom setting for nertc communication.
+
 config USE_NERTC_SERVER_AEC
     bool "Enable NERTC Server-Side AEC"
     default y
-    depends on CONNECTION_TYPE_NERTC
     help
         启用nertc服务器端 AEC
 
-config USE_NERTC_QOS
-    bool "Enable NERTC QOS"
-    default y
-    depends on USE_NERTC_SERVER_AEC || IDF_TARGET_ESP32S3
+config USE_NERTC_AUDIO_DEBUGGER_WS_URL
+    string "NERTC DEBUG WS URL"
+    default ""
     help
-        启用nertc QOS(包含nack,red,neteq,jitterbuffer等功能)
+        启用音频调试功能，通过WebSocket发送音频数据
+
+endif
 
 config USE_WECHAT_MESSAGE_STYLE
     bool "Enable WeChat Message Style"
@@ -441,7 +450,7 @@ config AUDIO_DEBUG_UDP_SERVER
 
 choice IOT_PROTOCOL
     prompt "IoT Protocol"
-    default IOT_PROTOCOL_MCP
+    default IOT_PROTOCOL_XIAOZHI
     help
         IoT 协议，用于获取设备状态与发送控制指令
     config IOT_PROTOCOL_MCP
