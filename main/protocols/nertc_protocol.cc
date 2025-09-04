@@ -706,6 +706,25 @@ void NeRtcProtocol::OnAiData(const nertc_sdk_callback_context_t* ctx, nertc_sdk_
         }
 
         cJSON_Delete(data_json);
+    } else if (strncmp(type_str, "emotion", type_len) == 0) {
+        cJSON* data_json = cJSON_Parse(data_str);
+        if (!data_json) {
+            ESP_LOGE(TAG, "Failed to parse JSON data");
+            return;
+        }
+        cJSON* message = cJSON_GetObjectItem(data_json, "message");
+        if (!message || !cJSON_IsString(message)) {
+            ESP_LOGE(TAG, "message is null");
+            cJSON_Delete(data_json);
+            return;
+        }
+        std::string emotion = message->valuestring;
+        cJSON* emot_json = cJSON_CreateObject();
+        cJSON_AddStringToObject(emot_json, "type",    "llm");
+        cJSON_AddStringToObject(emot_json, "emotion", emotion.c_str());
+        if (instance->on_incoming_json_) instance->on_incoming_json_(emot_json);
+        cJSON_Delete(emot_json);
+        cJSON_Delete(data_json);
     }
 }
 
